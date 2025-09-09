@@ -1,0 +1,41 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  DEPLOY_USER: "deployer"
+  DEPLOY_HOST: "host.docker.internal"   # ← เปลี่ยนจาก sshd เป็นอันนี้
+  DEPLOY_PORT: "2222"
+  DEPLOY_PATH: "/webroot"
+
+
+build:
+  stage: build
+  image: alpine:3.20
+  tags: ["local"]
+  script:
+    - apk add --no-cache zip
+    - mkdir -p dist
+    - cp index.html dist/
+    - cd dist && zip -r ../artifact.zip .
+  artifacts:
+    paths:
+      - artifact.zip
+    expire_in: 1 day
+
+deploy:
+  stage: deploy
+  image: alpine:3.20
+  tags: ["local"]
+  needs: ["build"]
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - echo "$DEPLOY_PRIVATE_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - printf "Host %s\n  HostName %s\n  Port %s\n  User %s\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking no\n" "$DEPLOY_HOST" "$DEPLOY_HOST" "$DEPLOY_PORT" "$DEPLOY_USER" > ~/.ssh/config
+  script:
+    - scp artifact.zip ${DEPLOY_HOST}:${DEPLOY_PATH}/
+    - ssh ${DEPLOY_HOST} "cd ${DEPLOY_PATH} && unzip -o artifact.zip && rm artifact.zip"
+  only:
+    - main

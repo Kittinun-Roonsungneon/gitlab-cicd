@@ -1,0 +1,66 @@
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: gitlab
+    hostname: gitlab
+    restart: unless-stopped
+    shm_size: 1g
+    ports:
+      - "8929:8929"   # HTTP External URL
+      - "822:22"      # SSH (ถ้าจะใช้ git over ssh)
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 822
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    networks: [gitlabnet]
+  runner:
+    image: gitlab/gitlab-runner:alpine
+    container_name: gitlab-runner
+    restart: unless-stopped
+    depends_on:
+      - gitlab
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./runner-config:/etc/gitlab-runner
+    networks: [gitlabnet]
+  # เครื่องปลายทางสำหรับ deploy = Nginx + โวลุ่มเว็บ
+  web:
+    image: nginx:alpine
+    container_name: web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - webroot:/usr/share/nginx/html:rw
+    networks: [gitlabnet]
+  # กล่อง SSH สำหรับรับไฟล์ deploy (แชร์โวลุ่มเดียวกับ Nginx)
+  sshd:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: sshd
+    environment:
+      - PUID=0
+      - PGID=0
+      - TZ=Asia/Bangkok
+      - PUBLIC_KEY_FILE=/keys/id_rsa.pub
+      - SUDO_ACCESS=false
+      - USER_NAME=deployer
+    volumes:
+      - webroot:/webroot:rw
+      - ./sshd/keys:/keys:ro
+      - sshd-config:/config
+    ports:
+      - "2222:2222"
+    networks: [gitlabnet]
+volumes:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:
+  webroot:
+  sshd-config:
+networks:
+  gitlabnet:
+    name: gitlabnet
